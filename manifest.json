@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "cshub++",
+  "version": "1.0",
+  "description": "Adds per-question Copy and Ask-AI buttons to test-cshub.ir exam result pages, with math rendered as LaTeX.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "96": "icons/icon96.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://test-cshub.ir/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "cshub-exam-helper@local.extension"
+    }
+  }
+}
