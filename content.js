@@ -333,7 +333,7 @@
     const small = document.createElement('small');
     small.textContent = label;
     small.style.color = '#000';
-    small.style.fontSize = '12px';
+    small.style.fontSize = '10px';
 
     wrap.appendChild(iconBtn);
     wrap.appendChild(small);
