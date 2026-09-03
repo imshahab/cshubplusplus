@@ -1,7 +1,8 @@
 // CSHub Exam Result Helper — content script (browser extension build)
 // Adds Copy and Ask-AI buttons to each question on test-cshub.ir exam
-// result pages and the /me/questions selected-questions list. Math is
-// converted to LaTeX; images become a URL note.
+// result pages, comprehensive/sequential exam pages, and the
+// /me/questions selected-questions list. Math is converted to LaTeX;
+// images become a URL note.
 
 (function () {
   'use strict';
@@ -448,17 +449,21 @@
   }
 
   // URL shapes that carry question cards worth adding buttons to:
-  //   - /exam/{id}/result        (exam result / review page)
-  //   - /exam/sequential/{id}    (live exam-taking page — question cards
-  //                                appear inside an answer-feedback modal
-  //                                once you submit an answer)
-  //   - /me/questions            (سوالات منتخب list — same card component,
-  //                                but without id="question-<n>" attributes)
+  //   - /exam/{id}/result          (exam result / review page)
+  //   - /exam/sequential/{id}      (live exam-taking page — question cards
+  //                                  appear inside an answer-feedback modal
+  //                                  once you submit an answer)
+  //   - /exam/comprehensive/{id}   (comprehensive exam page — same card
+  //                                  component as the other exam pages;
+  //                                  the trailing segment is the exam id)
+  //   - /me/questions              (سوالات منتخب list — same card component,
+  //                                  but without id="question-<n>" attributes)
   // Used both at startup and whenever the SPA changes routes without a
   // full page load.
   function isRelevantPage() {
     return /^\/exam\/[^/]+\/result/.test(location.pathname) ||
            /^\/exam\/sequential\/[^/]+/.test(location.pathname) ||
+           /^\/exam\/comprehensive\/[^/]+/.test(location.pathname) ||
            /^\/me\/questions/.test(location.pathname);
   }
 
