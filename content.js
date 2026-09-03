@@ -253,8 +253,10 @@
   }
 
   function openAiMenu(questionCard, anchorBtn) {
-    // Close any other open menu first
-    document.querySelectorAll('.userscript-ai-menu').forEach((m) => m.remove());
+    // Close any other open menu first (via closeAiMenu so its document
+    // click listener is removed too — just detaching the node here would
+    // leak a stale listener on every reopen).
+    document.querySelectorAll('.userscript-ai-menu').forEach((m) => closeAiMenu(m));
 
     const menu = document.createElement('div');
     // Rounded white card with a soft border, matching the site's own
@@ -432,6 +434,19 @@
     findQuestionCards().forEach(addCopyButton);
   }
 
+  // Coalesce bursts of calls (a single React re-render can trigger many
+  // MutationObserver callbacks in a row) into one scan per animation frame,
+  // instead of re-querying the whole DOM for every individual mutation.
+  let scanQueued = false;
+  function scheduleScan() {
+    if (scanQueued) return;
+    scanQueued = true;
+    requestAnimationFrame(() => {
+      scanQueued = false;
+      scanAndAddButtons();
+    });
+  }
+
   // URL shapes that carry question cards worth adding buttons to:
   //   - /exam/{id}/result        (exam result / review page)
   //   - /exam/sequential/{id}    (live exam-taking page — question cards
@@ -453,7 +468,7 @@
     let pollCount = 0;
     pollInterval = setInterval(() => {
       if (!isRelevantPage()) { stopPolling(); return; }
-      scanAndAddButtons();
+      scheduleScan();
       pollCount += 1;
       if (pollCount >= 20) stopPolling(); // ~10s, then rely on the observer alone
     }, 500);
@@ -493,7 +508,7 @@
     handlePossibleRouteChange();
 
     const observer = new MutationObserver(() => {
-      if (isRelevantPage()) scanAndAddButtons();
+      if (isRelevantPage()) scheduleScan();
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
