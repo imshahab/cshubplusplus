@@ -1,6 +1,7 @@
 // CSHub Exam Result Helper — content script (browser extension build)
 // Adds Copy and Ask-AI buttons to each question on test-cshub.ir exam
-// result pages. Math is converted to LaTeX; images become a URL note.
+// result pages and the /me/questions selected-questions list. Math is
+// converted to LaTeX; images become a URL note.
 
 (function () {
   'use strict';
@@ -126,12 +127,17 @@
   function buildQuestionText(questionCard) {
     const parts = [];
 
-    // Question number + prompt
-    const numEl = questionCard.querySelector('.flex.gap-1\\.5 span.text-black');
-    const promptEl = questionCard.querySelector(
-        '.flex.gap-1\\.5 .question-content-rtl, ' +
-        '.flex.gap-1\\.5 .question-content-ltr'
-    );
+    // Question number + prompt. NOTE: on /me/questions the prompt div has
+    // no question-content-* class, so fall back to the second child of the
+    // header row (the first child is the number badge).
+    const headerRow = questionCard.querySelector('.flex.gap-1\\.5');
+    const numEl = headerRow ? headerRow.querySelector('span.text-black') : null;
+    let promptEl = headerRow
+        ? headerRow.querySelector('.question-content-rtl, .question-content-ltr')
+        : null;
+    if (!promptEl && headerRow && headerRow.children.length > 1) {
+      promptEl = headerRow.children[1];
+    }
     const num = numEl ? numEl.textContent.trim() : '';
     if (promptEl) {
       parts.push(`سوال ${num}:\n${extractText(promptEl)}`);
@@ -149,7 +155,9 @@
       optionRows.forEach((row) => {
         const optNumEl = row.querySelector('.size-\\[24px\\] label');
         const optNum = optNumEl ? optNumEl.textContent.trim() : '';
-        const optContentEl = row.querySelector('.question-content-rtl');
+        const optContentEl = row.querySelector(
+          '.question-content-rtl, .question-content-ltr'
+        );
         const isCorrect = row.className.includes('bg-success');
         const optText = optContentEl ? extractText(optContentEl) : '';
         parts.push(`${optNum}) ${optText}${isCorrect ? '  ← پاسخ صحیح' : ''}`);
@@ -158,24 +166,38 @@
 
     // Descriptive answer: box that contains the explanation text, whether
     // currently open or closed. It's the div right after the "دیدن/بستن
-    // پاسخ تشریحی" toggle row.
-    const explanationBox = questionCard.querySelector(
-      '.min-h-\\[48px\\], .h-0.bg-white.rounded-\\[12px\\]'
-    );
-    // The above selector may match the collapsed placeholder; find any
-    // element carrying question-content-rtl inside the explanation area.
+    // پاسخ تشریحی" toggle row. Prefer an element carrying question-content-*
+    // inside the box; if none (e.g. the /me/questions card variant), fall
+    // back to the first candidate box that actually has text — the collapsed
+    // h-0 placeholder is empty so it never matches.
     let explanationContentEl = null;
+    let explanationBoxEl = null;
     const candidateBoxes = questionCard.querySelectorAll(
-      'div.border-1.overflow-x-auto.border-black\\/5.bg-white.rounded-\\[12px\\], div.h-0.bg-white.rounded-\\[12px\\]'
+      'div.min-h-\\[48px\\], ' +
+      'div.border-1.overflow-x-auto.border-black\\/5.bg-white.rounded-\\[12px\\], ' +
+      'div.h-0.bg-white.rounded-\\[12px\\]'
     );
     candidateBoxes.forEach((box) => {
-      const el = box.querySelector('.question-content-rtl');
-      if (el) explanationContentEl = el;
+      const el = box.querySelector('.question-content-rtl, .question-content-ltr');
+      if (el && !explanationContentEl) {
+        explanationContentEl = el;
+        explanationBoxEl = box;
+      }
     });
+    if (!explanationContentEl) {
+      candidateBoxes.forEach((box) => {
+        if (!explanationBoxEl && box.textContent.trim().length > 0) {
+          explanationBoxEl = box;
+        }
+      });
+    }
 
     if (explanationContentEl) {
       parts.push('\nپاسخ تشریحی:');
       parts.push(extractText(explanationContentEl));
+    } else if (explanationBoxEl) {
+      parts.push('\nپاسخ تشریحی:');
+      parts.push(extractText(explanationBoxEl));
     } else {
       parts.push('\n(پاسخ تشریحی باز نشده — برای کپی کامل، ابتدا روی «دیدن پاسخ تشریحی» کلیک کنید)');
     }
@@ -188,9 +210,7 @@
     const toggle = questionCard.querySelector(
       '.bg-success\\/10.border-1.border-black\\/5.flex.items-center.justify-center.gap-2.rounded-\\[8px\\].py-2.cursor-pointer'
     );
-    const alreadyOpen = questionCard.querySelector(
-      '.min-h-\\[48px\\].p-4.border-1.overflow-x-auto.border-black\\/5.bg-white.rounded-\\[12px\\]'
-    );
+    const alreadyOpen = questionCard.querySelector('div.min-h-\\[48px\\]');
 
     const doCopy = () => {
       const text = buildQuestionText(questionCard);
@@ -280,9 +300,7 @@
         };
 
         // Make sure explanation is expanded first, same as copy button.
-        const alreadyOpen = questionCard.querySelector(
-          '.min-h-\\[48px\\].p-4.border-1.overflow-x-auto.border-black\\/5.bg-white.rounded-\\[12px\\]'
-        );
+        const alreadyOpen = questionCard.querySelector('div.min-h-\\[48px\\]');
         const toggle = questionCard.querySelector(
           '.bg-success\\/10.border-1.border-black\\/5.flex.items-center.justify-center.gap-2.rounded-\\[8px\\].py-2.cursor-pointer'
         );
@@ -388,20 +406,45 @@
     }
   }
 
-  function scanAndAddButtons() {
-    document.querySelectorAll('[id^="question-"]').forEach(addCopyButton);
+  // Question cards are identified two ways depending on the page:
+  //   - result/exam pages tag each card with id="question-<n>"
+  //   - /me/questions renders the same card component without any id; there
+  //     the card root is a bg-natural-white/rounded-[16px] wrapper that
+  //     contains the prompt header row and the options container. Only the
+  //     innermost matching wrapper is kept so outer layout cards never get
+  //     their own buttons.
+  function findQuestionCards() {
+    const idCards = Array.from(document.querySelectorAll('[id^="question-"]'));
+    const untagged = Array.from(
+      document.querySelectorAll('.bg-natural-white.rounded-\\[16px\\].w-full.relative')
+    ).filter((el) =>
+      el.querySelector('.flex.gap-1\\.5') &&
+      el.querySelector('.bg-transparent.flex.flex-col.gap-4.pt-2.pb-8')
+    );
+    const all = Array.from(new Set([...idCards, ...untagged]));
+    return all.filter((el) =>
+      idCards.includes(el) ||
+      !all.some((other) => other !== el && el.contains(other))
+    );
   }
 
-  // Two URL shapes carry question cards worth adding buttons to:
+  function scanAndAddButtons() {
+    findQuestionCards().forEach(addCopyButton);
+  }
+
+  // URL shapes that carry question cards worth adding buttons to:
   //   - /exam/{id}/result        (exam result / review page)
   //   - /exam/sequential/{id}    (live exam-taking page — question cards
   //                                appear inside an answer-feedback modal
   //                                once you submit an answer)
+  //   - /me/questions            (سوالات منتخب list — same card component,
+  //                                but without id="question-<n>" attributes)
   // Used both at startup and whenever the SPA changes routes without a
   // full page load.
   function isRelevantPage() {
     return /^\/exam\/[^/]+\/result/.test(location.pathname) ||
-           /^\/exam\/sequential\/[^/]+/.test(location.pathname);
+           /^\/exam\/sequential\/[^/]+/.test(location.pathname) ||
+           /^\/me\/questions/.test(location.pathname);
   }
 
   let pollInterval = null;
